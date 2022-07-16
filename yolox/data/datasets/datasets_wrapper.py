@@ -104,7 +104,7 @@ class Dataset(torchDataset):
         @wraps(getitem_fn)
         def wrapper(self, index):
             if not isinstance(index, int):
-                self.enable_mosaic = index[0]
+                self.enable_mosaic = False #index[0]
                 index = index[1]
 
             ret_val = getitem_fn(self, index)

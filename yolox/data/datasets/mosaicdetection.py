@@ -116,6 +116,14 @@ class MosaicDetection(Dataset):
                     labels[:, 1] = scale * _labels[:, 1] + padh
                     labels[:, 2] = scale * _labels[:, 2] + padw
                     labels[:, 3] = scale * _labels[:, 3] + padh
+                    labels[:, 5] = scale * _labels[:, 5] + padw
+                    labels[:, 6] = scale * _labels[:, 6] + padh
+                    labels[:, 7] = scale * _labels[:, 7] + padw
+                    labels[:, 8] = scale * _labels[:, 8] + padh
+                    labels[:, 9] = scale * _labels[:, 9] + padw
+                    labels[:, 10] = scale * _labels[:, 10] + padh
+                    labels[:, 11] = scale * _labels[:, 11] + padw
+                    labels[:, 12] = scale * _labels[:, 12] + padh
                 mosaic_labels.append(labels)
 
             if len(mosaic_labels):
@@ -124,6 +132,14 @@ class MosaicDetection(Dataset):
                 np.clip(mosaic_labels[:, 1], 0, 2 * input_h, out=mosaic_labels[:, 1])
                 np.clip(mosaic_labels[:, 2], 0, 2 * input_w, out=mosaic_labels[:, 2])
                 np.clip(mosaic_labels[:, 3], 0, 2 * input_h, out=mosaic_labels[:, 3])
+                np.clip(mosaic_labels[:, 5], 0, 2 * input_w, out=mosaic_labels[:, 5])
+                np.clip(mosaic_labels[:, 6], 0, 2 * input_h, out=mosaic_labels[:, 6])
+                np.clip(mosaic_labels[:, 7], 0, 2 * input_w, out=mosaic_labels[:, 7])
+                np.clip(mosaic_labels[:, 8], 0, 2 * input_h, out=mosaic_labels[:, 8])
+                np.clip(mosaic_labels[:, 9], 0, 2 * input_w, out=mosaic_labels[:, 9])
+                np.clip(mosaic_labels[:, 10], 0, 2 * input_h, out=mosaic_labels[:, 10])
+                np.clip(mosaic_labels[:, 11], 0, 2 * input_w, out=mosaic_labels[:, 11])
+                np.clip(mosaic_labels[:, 12], 0, 2 * input_h, out=mosaic_labels[:, 12])
 
             mosaic_img, mosaic_labels = random_affine(
                 mosaic_img,

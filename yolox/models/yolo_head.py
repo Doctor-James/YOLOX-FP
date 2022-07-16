@@ -8,11 +8,44 @@ from loguru import logger
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 from yolox.utils import bboxes_iou, meshgrid
 
 from .losses import IOUloss
 from .network_blocks import BaseConv, DWConv
+
+
+class WingLoss(nn.Module):
+    def __init__(self, w=10, e=2):
+        super(WingLoss, self).__init__()
+        # https://arxiv.org/pdf/1711.06753v4.pdf   Figure 5
+        self.w = w
+        self.e = e
+        self.C = self.w - self.w * np.log(1 + self.w / self.e)
+
+    def forward(self, x, t, sigma=1): #x:预测值，t：标签值
+        weight = torch.ones_like(t)
+        weight[torch.where(t==-1)] = 0
+        diff = weight * (x - t)
+        abs_diff = diff.abs()
+        flag = (abs_diff.data < self.w).float()
+        y = flag * self.w * torch.log(1 + abs_diff / self.e) + (1 - flag) * (abs_diff - self.C)
+        return y.sum()
+
+class LandmarksLoss(nn.Module):
+    # BCEwithLogitLoss() with reduced missing label effects.
+    def __init__(self, alpha=1.0):
+        super(LandmarksLoss, self).__init__()
+        self.loss_fcn = WingLoss()#nn.SmoothL1Loss(reduction='sum')
+        self.alpha = alpha
+
+    def forward(self,  truel, mask, pred):
+        len_truel = truel.shape[0]
+        len_pred = pred.shape[0]
+        for i in range(len_truel):
+            for j in range(len_pred):
+                loss = self.loss_fcn(pred[j,:], truel[i,:])
+        return loss / (len_truel*len_pred + 10e-14)
 
 
 class YOLOXHead(nn.Module):
@@ -137,6 +170,7 @@ class YOLOXHead(nn.Module):
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.iou_loss = IOUloss(reduction="none")
+        self.landmarkloss = LandmarksLoss(1.0)
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
 
@@ -245,7 +279,10 @@ class YOLOXHead(nn.Module):
         grid = grid.view(1, -1, 2)
         output[..., :2] = (output[..., :2] + grid) * stride # xy
         output[..., 2:4] = torch.exp(output[..., 2:4]) * stride # wh
-        output[..., 4:12] = (output[..., 4:12] + grid) * stride #points
+        output[..., 4:6] = (output[..., 4:6] + grid) * stride #points
+        output[..., 6:8] = (output[..., 6:8] + grid) * stride  # points
+        output[..., 8:10] = (output[..., 8:10] + grid) * stride  # points
+        output[..., 10:12] = (output[..., 10:12] + grid) * stride  # points
         return output, grid
 
     def decode_outputs(self, outputs, dtype):
@@ -337,7 +374,7 @@ class YOLOXHead(nn.Module):
                         y_shifts,
                         cls_preds,
                         bbox_preds,
-                        pit_preds
+                        pit_preds,
                         obj_preds,
                         labels,
                         imgs,
@@ -490,6 +527,7 @@ class YOLOXHead(nn.Module):
         )
 
         bboxes_preds_per_image = bboxes_preds_per_image[fg_mask]
+        points_preds_per_image = points_preds_per_image[fg_mask]
         cls_preds_ = cls_preds[batch_idx][fg_mask]
         obj_preds_ = obj_preds[batch_idx][fg_mask]
         pit_preds_ = pit_preds[batch_idx][fg_mask]
@@ -510,9 +548,9 @@ class YOLOXHead(nn.Module):
 
         pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-8)
 
-
+        lks_mask = torch.where(gt_points_per_image < 0, torch.full_like(gt_points_per_image, 0.), torch.full_like(gt_points_per_image, 1.0))
         #Wingloss
-        landmarks_loss = Wingloss(gt_points_per_image,points_preds_per_image)
+        landmarks_loss = self.landmarkloss(gt_points_per_image,lks_mask,points_preds_per_image) #四点的标签值，掩模，预测值[<8400,8]
 
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
@@ -532,6 +570,7 @@ class YOLOXHead(nn.Module):
         cost = (
             pair_wise_cls_loss
             + 3.0 * pair_wise_ious_loss
+            + 1.0 * landmarks_loss
             + 100000.0 * (~is_in_boxes_and_center)
         )
 

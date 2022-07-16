@@ -73,8 +73,8 @@ class AnnotationTransform(object):
 
             pts2 = ["x1","y1","x2","y2","x3","y3","x4","y4"]
             points = []
-            for i, pt in enumerate(pts2):
-                cur_pt2 = int(float(points_temp.find(pt).text)) - 1
+            for i2, pt2 in enumerate(pts2):
+                cur_pt2 = int(float(points_temp.find(pt2).text)) - 1
                 # scale height or width
                 # cur_pt = cur_pt / width if i % 2 == 0 else cur_pt / height
                 points.append(cur_pt2)
@@ -134,8 +134,8 @@ class VOCDetection(Dataset):
         self._classes = VOC_CLASSES
         self.ids = list()
         for (year, name) in image_sets:
-            self._year = year
-            rootpath = os.path.join(self.root, "VOC" + year)
+            self._year = '2007' #year
+            rootpath = os.path.join(self.root, "VOC" + '2007')
             for line in open(
                 os.path.join(rootpath, "ImageSets", "Main", name + ".txt")
             ):

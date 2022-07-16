@@ -138,7 +138,7 @@ def _mirror(image, boxes, prob=0.5):
         boxes[:, 0::2] = width - boxes[:, 2::-2]
     return image, boxes
 
-
+#img resize为[640,640],等比放大，不够的padding r 为缩放倍数
 def preproc(img, input_size, swap=(2, 0, 1)):
     if len(img.shape) == 3:
         padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
@@ -166,9 +166,10 @@ class TrainTransform:
 
     def __call__(self, image, targets, input_dim):
         boxes = targets[:, :4].copy()
+        points = targets[:, 5:].copy()
         labels = targets[:, 4].copy()
         if len(boxes) == 0:
-            targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+            targets = np.zeros((self.max_labels, 13), dtype=np.float32)
             image, r_o = preproc(image, input_dim)
             return image, targets
 
@@ -176,8 +177,9 @@ class TrainTransform:
         targets_o = targets.copy()
         height_o, width_o, _ = image_o.shape
         boxes_o = targets_o[:, :4]
+        points_o = targets[:, 5:].copy()
         labels_o = targets_o[:, 4]
-        # bbox_o: [xyxy] to [c_x,c_y,w,h]
+        # bbox_o: [xyxy] to [c_x,c_y,w,h] 中心点坐标，wh
         boxes_o = xyxy2cxcywh(boxes_o)
 
         if random.random() < self.hsv_prob:
@@ -188,21 +190,24 @@ class TrainTransform:
         # boxes [xyxy] 2 [cx,cy,w,h]
         boxes = xyxy2cxcywh(boxes)
         boxes *= r_
+        points *= r_
 
         mask_b = np.minimum(boxes[:, 2], boxes[:, 3]) > 1
         boxes_t = boxes[mask_b]
+        points_t = points[mask_b]
         labels_t = labels[mask_b]
 
         if len(boxes_t) == 0:
             image_t, r_o = preproc(image_o, input_dim)
             boxes_o *= r_o
             boxes_t = boxes_o
+            points_t = points_o
             labels_t = labels_o
 
         labels_t = np.expand_dims(labels_t, 1)
 
-        targets_t = np.hstack((labels_t, boxes_t))
-        padded_labels = np.zeros((self.max_labels, 5))
+        targets_t = np.hstack((labels_t, boxes_t, points_t))
+        padded_labels = np.zeros((self.max_labels, 13))
         padded_labels[range(len(targets_t))[: self.max_labels]] = targets_t[
             : self.max_labels
         ]
