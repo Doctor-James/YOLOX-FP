@@ -39,13 +39,11 @@ class LandmarksLoss(nn.Module):
         self.loss_fcn = WingLoss()#nn.SmoothL1Loss(reduction='sum')
         self.alpha = alpha
 
-    def forward(self,  truel, mask, pred):
-        len_truel = truel.shape[0]
-        len_pred = pred.shape[0]
-        for i in range(len_truel):
-            for j in range(len_pred):
-                loss = self.loss_fcn(pred[j,:], truel[i,:])
-        return loss / (len_truel*len_pred + 10e-14)
+    def forward(self, pred, target):
+        assert pred.shape[0] == target.shape[0]
+        num_gt = target.shape[0]
+        loss = self.loss_fcn(pred, target)
+        return loss / (num_gt + 10e-14)
 
 
 class YOLOXHead(nn.Module):
@@ -330,6 +328,7 @@ class YOLOXHead(nn.Module):
 
         cls_targets = []
         reg_targets = []
+        point_targets = []
         l1_targets = []
         obj_targets = []
         fg_masks = []
@@ -343,6 +342,7 @@ class YOLOXHead(nn.Module):
             if num_gt == 0:
                 cls_target = outputs.new_zeros((0, self.num_classes))
                 reg_target = outputs.new_zeros((0, 4))
+                point_target = outputs.new_zeros((0, 8))
                 l1_target = outputs.new_zeros((0, 4))
                 obj_target = outputs.new_zeros((total_num_anchors, 1))
                 fg_mask = outputs.new_zeros(total_num_anchors).bool()
@@ -402,7 +402,9 @@ class YOLOXHead(nn.Module):
                         total_num_anchors,
                         gt_bboxes_per_image,
                         gt_classes,
+                        gt_points_per_image,
                         bboxes_preds_per_image,
+                        points_preds_per_image,
                         expanded_strides,
                         x_shifts,
                         y_shifts,
@@ -422,6 +424,7 @@ class YOLOXHead(nn.Module):
                 ) * pred_ious_this_matching.unsqueeze(-1)
                 obj_target = fg_mask.unsqueeze(-1)
                 reg_target = gt_bboxes_per_image[matched_gt_inds]
+                point_target = gt_points_per_image[matched_gt_inds]
                 if self.use_l1:
                     l1_target = self.get_l1_target(
                         outputs.new_zeros((num_fg_img, 4)),
@@ -433,22 +436,27 @@ class YOLOXHead(nn.Module):
 
             cls_targets.append(cls_target)
             reg_targets.append(reg_target)
+            point_targets.append(point_target)
             obj_targets.append(obj_target.to(dtype))
             fg_masks.append(fg_mask)
             if self.use_l1:
                 l1_targets.append(l1_target)
 
         cls_targets = torch.cat(cls_targets, 0)
-        reg_targets = torch.cat(reg_targets, 0)
-        obj_targets = torch.cat(obj_targets, 0)
+        reg_targets = torch.cat(reg_targets, 0) # [正样本数，4]
+        obj_targets = torch.cat(obj_targets, 0) #[batchsize*8400]
+        point_targets = torch.cat(point_targets, 0) # [正样本数，8] 为标签值
         fg_masks = torch.cat(fg_masks, 0)
         if self.use_l1:
             l1_targets = torch.cat(l1_targets, 0)
 
-        num_fg = max(num_fg, 1)
+        num_fg = max(num_fg, 1) #总正样本数
         loss_iou = (
             self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
         ).sum() / num_fg
+        loss_points = (
+            self.landmarkloss(pit_preds.view(-1, 8)[fg_masks], point_targets)
+        )#sum/num_fg写在landmarkloss函数内部了
         loss_obj = (
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
@@ -465,11 +473,13 @@ class YOLOXHead(nn.Module):
             loss_l1 = 0.0
 
         reg_weight = 5.0
-        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+        point_weight = 5.0
+        loss = reg_weight * loss_iou + point_weight * loss_points + loss_obj + loss_cls + loss_l1
 
         return (
             loss,
             reg_weight * loss_iou,
+            point_weight * loss_points,
             loss_obj,
             loss_cls,
             loss_l1,
@@ -537,7 +547,7 @@ class YOLOXHead(nn.Module):
             gt_bboxes_per_image = gt_bboxes_per_image.cpu()
             bboxes_preds_per_image = bboxes_preds_per_image.cpu()
 
-        pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
+        pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False) #[标签框个数，正样本个数]，存储每个标签框和正样本的IOU
 
         gt_cls_per_image = (
             F.one_hot(gt_classes.to(torch.int64), self.num_classes)
@@ -548,9 +558,9 @@ class YOLOXHead(nn.Module):
 
         pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-8)
 
-        lks_mask = torch.where(gt_points_per_image < 0, torch.full_like(gt_points_per_image, 0.), torch.full_like(gt_points_per_image, 1.0))
+        #lks_mask = torch.where(gt_points_per_image < 0, torch.full_like(gt_points_per_image, 0.), torch.full_like(gt_points_per_image, 1.0))
         #Wingloss
-        landmarks_loss = self.landmarkloss(gt_points_per_image,lks_mask,points_preds_per_image) #四点的标签值，掩模，预测值[<8400,8]
+        #landmarks_loss = self.landmarkloss(gt_points_per_image,lks_mask,points_preds_per_image) #四点的标签值，掩模，预测值[<8400,8]
 
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
@@ -570,16 +580,16 @@ class YOLOXHead(nn.Module):
         cost = (
             pair_wise_cls_loss
             + 3.0 * pair_wise_ious_loss
-            + 1.0 * landmarks_loss
+            #+ 1.0 * landmarks_loss
             + 100000.0 * (~is_in_boxes_and_center)
         )
 
         (
-            num_fg,
+            num_fg, #再次筛选后的正样本个数
             gt_matched_classes,
             pred_ious_this_matching,
             matched_gt_inds,
-        ) = self.dynamic_k_matching(cost, pair_wise_ious, gt_classes, num_gt, fg_mask)
+        ) = self.dynamic_k_matching(cost, pair_wise_ious, gt_classes, num_gt, fg_mask) #仍然在筛选正样本
         del pair_wise_cls_loss, cost, pair_wise_ious, pair_wise_ious_loss
 
         if mode == "cpu":
@@ -682,13 +692,14 @@ class YOLOXHead(nn.Module):
         return is_in_boxes_anchor, is_in_boxes_and_center
 
     def dynamic_k_matching(self, cost, pair_wise_ious, gt_classes, num_gt, fg_mask):
+        # cost [num_gt,正样本数（8400中）] , gt_classes[num_gt个标签各自的类别]
         # Dynamic K
         # ---------------------------------------------------------------
         matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)
 
         ious_in_boxes_matrix = pair_wise_ious
         n_candidate_k = min(10, ious_in_boxes_matrix.size(1))
-        topk_ious, _ = torch.topk(ious_in_boxes_matrix, n_candidate_k, dim=1)
+        topk_ious, _ = torch.topk(ious_in_boxes_matrix, n_candidate_k, dim=1) #选取iou最大的前十个计算
         dynamic_ks = torch.clamp(topk_ious.sum(1).int(), min=1)
         dynamic_ks = dynamic_ks.tolist()
         for gt_idx in range(num_gt):
@@ -707,7 +718,7 @@ class YOLOXHead(nn.Module):
         fg_mask_inboxes = matching_matrix.sum(0) > 0
         num_fg = fg_mask_inboxes.sum().item()
 
-        fg_mask[fg_mask.clone()] = fg_mask_inboxes
+        fg_mask[fg_mask.clone()] = fg_mask_inboxes #进一步缩小正样本，具体没细看
 
         matched_gt_inds = matching_matrix[:, fg_mask_inboxes].argmax(0)
         gt_matched_classes = gt_classes[matched_gt_inds]
