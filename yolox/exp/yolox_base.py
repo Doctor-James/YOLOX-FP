@@ -47,9 +47,9 @@ class Exp(BaseExp):
 
         # --------------- transform config ----------------- #
         # prob of applying mosaic aug
-        self.mosaic_prob = 1.0
+        self.mosaic_prob = 0  # 1.0
         # prob of applying mixup aug
-        self.mixup_prob = 1.0
+        self.mixup_prob = 0  # 1.0
         # prob of applying hsv aug
         self.hsv_prob = 1.0
         # prob of applying flip aug

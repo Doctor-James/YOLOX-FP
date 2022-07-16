@@ -131,12 +131,13 @@ def random_affine(
     return img, targets
 
 
-def _mirror(image, boxes, prob=0.5):
+def _mirror(image, boxes, points, prob=0.5):
     _, width, _ = image.shape
     if random.random() < prob:
         image = image[:, ::-1]
-        boxes[:, 0::2] = width - boxes[:, 2::-2]
-    return image, boxes
+        boxes[:, 0::2] = width - boxes[:, 2::-2] #[:, 0::2] 从index=0开始，间隔为2
+        points[:,0::2] = width - points[:, 6::-2]
+    return image, boxes, points
 
 #img resize为[640,640],等比放大，不够的padding r 为缩放倍数
 def preproc(img, input_size, swap=(2, 0, 1)):
@@ -184,7 +185,7 @@ class TrainTransform:
 
         if random.random() < self.hsv_prob:
             augment_hsv(image)
-        image_t, boxes = _mirror(image, boxes, self.flip_prob)
+        image_t, boxes, points = _mirror(image, boxes, points, self.flip_prob)
         height, width, _ = image_t.shape
         image_t, r_ = preproc(image_t, input_dim)
         # boxes [xyxy] 2 [cx,cy,w,h]
