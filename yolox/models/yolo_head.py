@@ -352,7 +352,10 @@ class YOLOXHead(nn.Module):
                 gt_points_per_image = labels[batch_idx, :num_gt, 5:] #labels中的points值
                 bboxes_preds_per_image = bbox_preds[batch_idx] #每张图片的预测框 [8400,4]
                 points_preds_per_image = pit_preds[batch_idx] #每张图片的points [8400,8]
-
+                # print('--------num_gt---------', num_gt)
+                # print('--------batch_idx---------', batch_idx)
+                # print('--------gt_bboxes_per_image---------',gt_bboxes_per_image)
+                # print('--------labels---------', labels)
                 try:
                     (
                         gt_matched_classes,
@@ -549,6 +552,9 @@ class YOLOXHead(nn.Module):
 
         pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False) #[标签框个数，正样本个数]，存储每个标签框和正样本的IOU
 
+        # print('-------------pair_wise_ious--------',pair_wise_ious)
+        # print('-------------gt_bboxes_per_image--------', gt_bboxes_per_image)
+        # print('-------------bboxes_preds_per_image--------', bboxes_preds_per_image)
         gt_cls_per_image = (
             F.one_hot(gt_classes.to(torch.int64), self.num_classes)
             .float()
@@ -571,7 +577,7 @@ class YOLOXHead(nn.Module):
                 * obj_preds_.float().unsqueeze(0).repeat(num_gt, 1, 1).sigmoid_()
             )
 
-            pair_wise_cls_loss = F.binary_cross_entropy(
+            pair_wise_cls_loss = F.binary_cross_entropy_with_logits(
                 cls_preds_.sqrt_(), gt_cls_per_image, reduction="none"
             ).sum(-1)
             #二分类交叉熵损失
@@ -700,7 +706,9 @@ class YOLOXHead(nn.Module):
         ious_in_boxes_matrix = pair_wise_ious
         n_candidate_k = min(10, ious_in_boxes_matrix.size(1))
         topk_ious, _ = torch.topk(ious_in_boxes_matrix, n_candidate_k, dim=1) #选取iou最大的前十个计算
+        # print('-----------topk_ious------------', topk_ious)
         dynamic_ks = torch.clamp(topk_ious.sum(1).int(), min=1)
+        # print('-----------dynamic_ks------------',dynamic_ks)
         dynamic_ks = dynamic_ks.tolist()
         for gt_idx in range(num_gt):
             _, pos_idx = torch.topk(

@@ -207,6 +207,10 @@ class VOCDetection(Dataset):
 
         assert self.target_transform is not None
         res, img_info = self.target_transform(target)
+        for i in range(res.shape[0]):
+            if(res[i,4]<0 or res[i,4]>35):
+                print('------------------',res[i,4])
+
         height, width = img_info
 
         r = min(self.img_size[0] / height, self.img_size[1] / width)
