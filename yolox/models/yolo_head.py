@@ -11,39 +11,8 @@ import torch.nn.functional as F
 import numpy as np
 from yolox.utils import bboxes_iou, meshgrid
 
-from .losses import IOUloss
+from .losses import IOUloss, WingLoss
 from .network_blocks import BaseConv, DWConv
-
-
-class WingLoss(nn.Module):
-    def __init__(self, w=10, e=2):
-        super(WingLoss, self).__init__()
-        # https://arxiv.org/pdf/1711.06753v4.pdf   Figure 5
-        self.w = w
-        self.e = e
-        self.C = self.w - self.w * np.log(1 + self.w / self.e)
-
-    def forward(self, x, t, sigma=1): #x:预测值，t：标签值
-        weight = torch.ones_like(t)
-        weight[torch.where(t==-1)] = 0
-        diff = weight * (x - t)
-        abs_diff = diff.abs()
-        flag = (abs_diff.data < self.w).float()
-        y = flag * self.w * torch.log(1 + abs_diff / self.e) + (1 - flag) * (abs_diff - self.C)
-        return y.sum()
-
-class LandmarksLoss(nn.Module):
-    # BCEwithLogitLoss() with reduced missing label effects.
-    def __init__(self, alpha=1.0):
-        super(LandmarksLoss, self).__init__()
-        self.loss_fcn = WingLoss()#nn.SmoothL1Loss(reduction='sum')
-        self.alpha = alpha
-
-    def forward(self, pred, target):
-        assert pred.shape[0] == target.shape[0]
-        num_gt = target.shape[0]
-        loss = self.loss_fcn(pred, target)
-        return loss / (num_gt + 10e-14)
 
 
 class YOLOXHead(nn.Module):
@@ -168,7 +137,7 @@ class YOLOXHead(nn.Module):
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.iou_loss = IOUloss(reduction="none")
-        self.landmarkloss = LandmarksLoss(1.0)
+        self.wing_loss = WingLoss()
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
 
@@ -458,8 +427,8 @@ class YOLOXHead(nn.Module):
             self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
         ).sum() / num_fg
         loss_points = (
-            self.landmarkloss(pit_preds.view(-1, 8)[fg_masks], point_targets)
-        )#sum/num_fg写在landmarkloss函数内部了
+            self.wing_loss(pit_preds.view(-1, 8)[fg_masks], point_targets)
+        ).sum() / num_fg
         loss_obj = (
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
