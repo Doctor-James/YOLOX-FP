@@ -44,16 +44,16 @@ def nms(boxes, scores, nms_thr):
     return keep
 
 
-def multiclass_nms(boxes, scores, nms_thr, score_thr, class_agnostic=True):
+def multiclass_nms(boxes, points, scores, nms_thr, score_thr, class_agnostic=True):
     """Multiclass NMS implemented in Numpy"""
     if class_agnostic:
         nms_method = multiclass_nms_class_agnostic
     else:
         nms_method = multiclass_nms_class_aware
-    return nms_method(boxes, scores, nms_thr, score_thr)
+    return nms_method(boxes, points, scores, nms_thr, score_thr)
 
 
-def multiclass_nms_class_aware(boxes, scores, nms_thr, score_thr):
+def multiclass_nms_class_aware(boxes, points, scores, nms_thr, score_thr):
     """Multiclass NMS implemented in Numpy. Class-aware version."""
     final_dets = []
     num_classes = scores.shape[1]
@@ -65,11 +65,12 @@ def multiclass_nms_class_aware(boxes, scores, nms_thr, score_thr):
         else:
             valid_scores = cls_scores[valid_score_mask]
             valid_boxes = boxes[valid_score_mask]
+            valid_points = points[valid_score_mask]
             keep = nms(valid_boxes, valid_scores, nms_thr)
             if len(keep) > 0:
                 cls_inds = np.ones((len(keep), 1)) * cls_ind
                 dets = np.concatenate(
-                    [valid_boxes[keep], valid_scores[keep, None], cls_inds], 1
+                    [valid_boxes[keep], valid_points[keep],valid_scores[keep, None], cls_inds], 1
                 )
                 final_dets.append(dets)
     if len(final_dets) == 0:
@@ -77,7 +78,7 @@ def multiclass_nms_class_aware(boxes, scores, nms_thr, score_thr):
     return np.concatenate(final_dets, 0)
 
 
-def multiclass_nms_class_agnostic(boxes, scores, nms_thr, score_thr):
+def multiclass_nms_class_agnostic(boxes, points, scores, nms_thr, score_thr):
     """Multiclass NMS implemented in Numpy. Class-agnostic version."""
     cls_inds = scores.argmax(1)
     cls_scores = scores[np.arange(len(cls_inds)), cls_inds]
@@ -87,11 +88,12 @@ def multiclass_nms_class_agnostic(boxes, scores, nms_thr, score_thr):
         return None
     valid_scores = cls_scores[valid_score_mask]
     valid_boxes = boxes[valid_score_mask]
+    valid_points = points[valid_score_mask]
     valid_cls_inds = cls_inds[valid_score_mask]
     keep = nms(valid_boxes, valid_scores, nms_thr)
     if keep:
         dets = np.concatenate(
-            [valid_boxes[keep], valid_scores[keep, None], valid_cls_inds[keep, None]], 1
+            [valid_boxes[keep], valid_points[keep], valid_scores[keep, None], valid_cls_inds[keep, None]], 1
         )
     return dets
 
@@ -120,5 +122,9 @@ def demo_postprocess(outputs, img_size, p6=False):
     expanded_strides = np.concatenate(expanded_strides, 1)
     outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides
     outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * expanded_strides
+    outputs[..., 4:6] = (outputs[..., 4:6] + grids) * expanded_strides
+    outputs[..., 6:8] = (outputs[..., 6:8] + grids) * expanded_strides
+    outputs[..., 8:10] = (outputs[..., 8:10] + grids) * expanded_strides
+    outputs[..., 10:12] = (outputs[..., 10:12] + grids) * expanded_strides
 
     return outputs
