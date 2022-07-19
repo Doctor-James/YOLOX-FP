@@ -215,6 +215,7 @@ class VOCDetection(Dataset):
 
         r = min(self.img_size[0] / height, self.img_size[1] / width)
         res[:, :4] *= r
+        res[:, 5:] *= r
         resized_info = (int(height * r), int(width * r))
 
         return (res, img_info, resized_info)

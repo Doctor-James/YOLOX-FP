@@ -47,9 +47,9 @@ class Exp(BaseExp):
 
         # --------------- transform config ----------------- #
         # prob of applying mosaic aug
-        self.mosaic_prob = 0  # 1.0
+        self.mosaic_prob = 1.0
         # prob of applying mixup aug
-        self.mixup_prob = 0  # 1.0
+        self.mixup_prob = 1.0
         # prob of applying hsv aug
         self.hsv_prob = 1.0
         # prob of applying flip aug
@@ -74,7 +74,7 @@ class Exp(BaseExp):
         self.warmup_lr = 0
         self.min_lr_ratio = 0.05
         # learning rate for one image. During training, lr will multiply batchsize.
-        self.basic_lr_per_img = 0.01 / 64.0
+        self.basic_lr_per_img = 0.001 / 16.0
         # name of LRScheduler
         self.scheduler = "yoloxwarmcos"
         # last #epoch to close augmention like mosaic

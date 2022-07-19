@@ -126,15 +126,15 @@ class VOCEvaluator:
             output = output.cpu()
 
             bboxes = output[:, 0:4]
-
+            points = output[:, 4:12]
             # preprocessing: resize
             scale = min(self.img_size[0] / float(img_h), self.img_size[1] / float(img_w))
             bboxes /= scale
+            points /= scale
+            cls = output[:, 14]
+            scores = output[:, 12] * output[:, 13]
 
-            cls = output[:, 6]
-            scores = output[:, 4] * output[:, 5]
-
-            predictions[int(img_id)] = (bboxes, cls, scores)
+            predictions[int(img_id)] = (bboxes, points, cls, scores)
         return predictions
 
     def evaluate_prediction(self, data_dict, statistics):
@@ -165,7 +165,7 @@ class VOCEvaluator:
             [[] for _ in range(self.num_images)] for _ in range(self.num_classes)
         ]
         for img_num in range(self.num_images):
-            bboxes, cls, scores = data_dict[img_num]
+            bboxes, points, cls, scores = data_dict[img_num]
             if bboxes is None:
                 for j in range(self.num_classes):
                     all_boxes[j][img_num] = np.empty([0, 5], dtype=np.float32)

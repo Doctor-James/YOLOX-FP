@@ -267,6 +267,10 @@ class YOLOXHead(nn.Module):
 
         outputs[..., :2] = (outputs[..., :2] + grids) * strides
         outputs[..., 2:4] = torch.exp(outputs[..., 2:4]) * strides
+        outputs[..., 4:6] = (outputs[..., 4:6] + grids) * strides
+        outputs[..., 6:8] = (outputs[..., 6:8] + grids) * strides
+        outputs[..., 8:10] = (outputs[..., 8:10] + grids) * strides
+        outputs[..., 10:12] = (outputs[..., 10:12] + grids) * strides
         return outputs
 
     def get_losses(
@@ -428,7 +432,7 @@ class YOLOXHead(nn.Module):
         ).sum() / num_fg
         loss_points = (
             self.wing_loss(pit_preds.view(-1, 8)[fg_masks], point_targets)
-        ).sum() / num_fg
+        ).sum()
         loss_obj = (
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg

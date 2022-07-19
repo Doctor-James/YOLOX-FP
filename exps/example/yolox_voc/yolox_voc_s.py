@@ -17,8 +17,8 @@ class Exp(MyExp):
         self.warmup_epochs = 1
 
         # ---------- transform config ------------ #
-        self.mosaic_prob = 1.0
-        self.mixup_prob = 1.0
+        self.mosaic_prob = 0 # 1.0
+        self.mixup_prob = 0 # 1.0
         self.hsv_prob = 1.0
         self.flip_prob = 0.5
 
