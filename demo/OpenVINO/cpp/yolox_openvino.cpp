@@ -21,10 +21,10 @@ using namespace InferenceEngine;
 #define NMS_THRESH 0.45
 #define BBOX_CONF_THRESH 0.3
 
-static const int INPUT_W = 416;
-static const int INPUT_H = 416;
-static const int NUM_CLASSES = 80; // COCO has 80 classes. Modify this value on your own dataset.
-
+static const int INPUT_W = 640;
+static const int INPUT_H = 640;
+static const int NUM_CLASSES = 6; // COCO has 80 classes. Modify this value on your own dataset.
+cv::VideoWriter videoWriter("../output.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),15 ,cv::Size(1280, 768));
 cv::Mat static_resize(cv::Mat& img) {
     float r = std::min(INPUT_W / (img.cols*1.0), INPUT_H / (img.rows*1.0));
     // r = std::min(r, 1.0f);
@@ -70,6 +70,7 @@ void blobFromImage(cv::Mat& img, Blob::Ptr& blob){
 struct Object
 {
     cv::Rect_<float> rect;
+    cv::Point2d points[4];
     int label;
     float prob;
 };
@@ -98,7 +99,7 @@ static void generate_grids_and_stride(const int target_w, const int target_h, st
 }
 
 
-static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, const float* feat_ptr, float prob_threshold, std::vector<Object>& objects)
+static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, const float * feat_ptr, float prob_threshold, std::vector<Object>& objects)
 {
 
     const int num_anchors = grid_strides.size();
@@ -109,7 +110,8 @@ static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, co
         const int grid1 = grid_strides[anchor_idx].grid1;
         const int stride = grid_strides[anchor_idx].stride;
 
-	const int basic_pos = anchor_idx * (NUM_CLASSES + 5);
+	//const int basic_pos = anchor_idx * (NUM_CLASSES + 5);
+        const int basic_pos = anchor_idx * (NUM_CLASSES + 13);
 
         // yolox/models/yolo_head.py decode logic
         //  outputs[..., :2] = (outputs[..., :2] + grids) * strides
@@ -118,13 +120,21 @@ static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, co
         float y_center = (feat_ptr[basic_pos + 1] + grid1) * stride;
         float w = exp(feat_ptr[basic_pos + 2]) * stride;
         float h = exp(feat_ptr[basic_pos + 3]) * stride;
+        float x1 = (feat_ptr[basic_pos + 4] + grid0) * stride;
+        float y1 = (feat_ptr[basic_pos + 5] + grid1) * stride;
+        float x2 = (feat_ptr[basic_pos + 6] + grid0) * stride;
+        float y2 = (feat_ptr[basic_pos + 7] + grid1) * stride;
+        float x3 = (feat_ptr[basic_pos + 8] + grid0) * stride;
+        float y3 = (feat_ptr[basic_pos + 9] + grid1) * stride;
+        float x4 = (feat_ptr[basic_pos + 10] + grid0) * stride;
+        float y4 = (feat_ptr[basic_pos + 11] + grid1) * stride;
         float x0 = x_center - w * 0.5f;
         float y0 = y_center - h * 0.5f;
 
-        float box_objectness = feat_ptr[basic_pos + 4];
+        float box_objectness = feat_ptr[basic_pos + 12];
         for (int class_idx = 0; class_idx < NUM_CLASSES; class_idx++)
         {
-            float box_cls_score = feat_ptr[basic_pos + 5 + class_idx];
+            float box_cls_score = feat_ptr[basic_pos + 13 + class_idx];
             float box_prob = box_objectness * box_cls_score;
             if (box_prob > prob_threshold)
             {
@@ -133,6 +143,14 @@ static void generate_yolox_proposals(std::vector<GridAndStride> grid_strides, co
                 obj.rect.y = y0;
                 obj.rect.width = w;
                 obj.rect.height = h;
+                obj.points[0].x = x1;
+                obj.points[0].y = y1;
+                obj.points[1].x = x2;
+                obj.points[1].y = y2;
+                obj.points[2].x = x3;
+                obj.points[2].y = y3;
+                obj.points[3].x = x4;
+                obj.points[3].y = y4;
                 obj.label = class_idx;
                 obj.prob = box_prob;
 
@@ -231,7 +249,7 @@ static void nms_sorted_bboxes(const std::vector<Object>& faceobjects, std::vecto
 }
 
 
-static void decode_outputs(const float* prob, std::vector<Object>& objects, float scale, const int img_w, const int img_h) {
+static void decode_outputs(const float * prob, std::vector<Object>& objects, float scale, const int img_w, const int img_h) {
         std::vector<Object> proposals;
         std::vector<int> strides = {8, 16, 32};
         std::vector<GridAndStride> grid_strides;
@@ -254,17 +272,43 @@ static void decode_outputs(const float* prob, std::vector<Object>& objects, floa
             float y0 = (objects[i].rect.y) / scale;
             float x1 = (objects[i].rect.x + objects[i].rect.width) / scale;
             float y1 = (objects[i].rect.y + objects[i].rect.height) / scale;
+            float x_1 = (objects[i].points[0].x) / scale;
+            float y_1 = (objects[i].points[0].y) / scale;
+            float x_2 = (objects[i].points[1].x) / scale;
+            float y_2 = (objects[i].points[1].y) / scale;
+            float x_3 = (objects[i].points[2].x) / scale;
+            float y_3 = (objects[i].points[2].y) / scale;
+            float x_4 = (objects[i].points[3].x) / scale;
+            float y_4 = (objects[i].points[3].y) / scale;
+
 
             // clip
             x0 = std::max(std::min(x0, (float)(img_w - 1)), 0.f);
             y0 = std::max(std::min(y0, (float)(img_h - 1)), 0.f);
             x1 = std::max(std::min(x1, (float)(img_w - 1)), 0.f);
             y1 = std::max(std::min(y1, (float)(img_h - 1)), 0.f);
+            x_1 = std::max(std::min(x_1, (float)(img_w - 1)), 0.f);
+            y_1 = std::max(std::min(y_1, (float)(img_h - 1)), 0.f);
+            x_2 = std::max(std::min(x_2, (float)(img_w - 1)), 0.f);
+            y_2 = std::max(std::min(y_2, (float)(img_h - 1)), 0.f);
+            x_3 = std::max(std::min(x_3, (float)(img_w - 1)), 0.f);
+            y_3 = std::max(std::min(y_3, (float)(img_h - 1)), 0.f);
+            x_4 = std::max(std::min(x_4, (float)(img_w - 1)), 0.f);
+            y_4 = std::max(std::min(y_4, (float)(img_h - 1)), 0.f);
 
             objects[i].rect.x = x0;
             objects[i].rect.y = y0;
             objects[i].rect.width = x1 - x0;
             objects[i].rect.height = y1 - y0;
+            objects[i].points[0].x = x_1;
+            objects[i].points[0].y = y_1;
+            objects[i].points[1].x = x_2;
+            objects[i].points[1].y = y_2;
+            objects[i].points[2].x = x_3;
+            objects[i].points[2].y = y_3;
+            objects[i].points[3].x = x_4;
+            objects[i].points[3].y = y_4;
+
         }
 }
 
@@ -354,16 +398,20 @@ const float color_list[80][3] =
 
 static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
 {
+//    static const char* class_names[] = {
+//        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+//        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+//        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+//        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+//        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+//        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+//        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+//        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+//        "hair drier", "toothbrush"
+//    };
+
     static const char* class_names[] = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-        "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-        "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-        "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-        "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-        "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-        "hair drier", "toothbrush"
+            "B_4","R_G","R_3","R_4","R_Bb","N_3"
     };
 
     cv::Mat image = bgr.clone();
@@ -384,7 +432,12 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
             txt_color = cv::Scalar(255, 255, 255);
         }
 
-        cv::rectangle(image, obj.rect, color * 255, 2);
+        //cv::rectangle(image, obj.rect, color * 255, 2);
+        for(int j = 0;j<4;j++)
+        {
+            cv::line(image,obj.points[j%4],obj.points[(j+1)%4],cv::Scalar(0,255,0),1);
+        }
+
 
         char text[256];
         sprintf(text, "%s %.1f%%", class_names[obj.label], obj.prob * 100);
@@ -402,17 +455,18 @@ static void draw_objects(const cv::Mat& bgr, const std::vector<Object>& objects)
         //if (x + label_size.width > image.cols)
             //x = image.cols - label_size.width;
 
-        cv::rectangle(image, cv::Rect(cv::Point(x, y), cv::Size(label_size.width, label_size.height + baseLine)),
-                      txt_bk_color, -1);
-
-        cv::putText(image, text, cv::Point(x, y + label_size.height),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
+//        cv::rectangle(image, cv::Rect(cv::Point(x, y), cv::Size(label_size.width, label_size.height + baseLine)),
+//                      txt_bk_color, -1);
+//
+//        cv::putText(image, text, cv::Point(x, y + label_size.height),
+//                    cv::FONT_HERSHEY_SIMPLEX, 0.4, txt_color, 1);
     }
 
-    cv::imwrite("_demo.jpg" , image);
-    fprintf(stderr, "save vis file\n");
-    /* cv::imshow("image", image); */
-    /* cv::waitKey(0); */
+//    cv::imwrite("_demo.jpg" , image);
+//    fprintf(stderr, "save vis file\n");
+        videoWriter.write(image);
+        cv::imshow("image", image);
+        cv::waitKey(10);
 }
 
 
@@ -485,40 +539,63 @@ int main(int argc, char* argv[]) {
         // --------------------------------------------------------
         /* Read input image to a blob and set it to an infer request without resize
          * and layout conversions. */
-        cv::Mat image = imread_t(input_image_path);
-	    cv::Mat pr_img = static_resize(image);
-        Blob::Ptr imgBlob = infer_request.GetBlob(input_name);     // just wrap Mat data by Blob::Ptr
-	    blobFromImage(pr_img, imgBlob);
 
-        // infer_request.SetBlob(input_name, imgBlob);  // infer_request accepts input blob of any size
-        // -----------------------------------------------------------------------------------------------------
+        cv::VideoCapture capture;
+        capture.open("../data/demo2.mp4");
+        int test_num = 1000;
+        auto start1 = std::chrono::system_clock::now();
+        while (1)
+        //for(int k =0;k<test_num;k++)
+        {
+            cv::Mat image;
+            capture >> image;//读取当前帧
+            //cv::Mat image = imread_t(input_image_path);
 
-        // --------------------------- Step 7. Do inference
-        // --------------------------------------------------------
-        /* Running the request synchronously */
-        infer_request.Infer();
-        // -----------------------------------------------------------------------------------------------------
+            cv::Mat pr_img = static_resize(image);
+            Blob::Ptr imgBlob = infer_request.GetBlob(input_name);     // just wrap Mat data by Blob::Ptr
+            blobFromImage(pr_img, imgBlob);
 
-        // --------------------------- Step 8. Process output
-        // ------------------------------------------------------
-        const Blob::Ptr output_blob = infer_request.GetBlob(output_name);
-        MemoryBlob::CPtr moutput = as<MemoryBlob>(output_blob);
-        if (!moutput) {
-            throw std::logic_error("We expect output to be inherited from MemoryBlob, "
-                                   "but by fact we were not able to cast output to MemoryBlob");
+            // infer_request.SetBlob(input_name, imgBlob);  // infer_request accepts input blob of any size
+            // -----------------------------------------------------------------------------------------------------
+
+            // --------------------------- Step 7. Do inference
+            // --------------------------------------------------------
+            /* Running the request synchronously */
+            infer_request.Infer();
+
+            // -----------------------------------------------------------------------------------------------------
+
+            // --------------------------- Step 8. Process output
+            // ------------------------------------------------------
+//            auto start2 = std::chrono::system_clock::now();
+            const Blob::Ptr output_blob = infer_request.GetBlob(output_name);
+            MemoryBlob::CPtr moutput = as<MemoryBlob>(output_blob);
+            if (!moutput) {
+                throw std::logic_error("We expect output to be inherited from MemoryBlob, "
+                                       "but by fact we were not able to cast output to MemoryBlob");
+            }
+            // locked memory holder should be alive all time while access to its buffer
+            // happens
+            auto moutputHolder = moutput->rmap();
+            const float *net_pred = moutputHolder.as<const PrecisionTrait<Precision::FP32>::value_type *>();
+
+            int img_w = image.cols;
+            int img_h = image.rows;
+            float scale = std::min(INPUT_W / (image.cols * 1.0), INPUT_H / (image.rows * 1.0));
+            std::vector<Object> objects;
+
+            decode_outputs(net_pred, objects, scale, img_w, img_h);
+//            auto end2 = std::chrono::system_clock::now();
+//            std::cout << "decode output time: "
+//                      << std::chrono::duration_cast<std::chrono::milliseconds>(end2 - start2).count() << std::endl;
+
+            draw_objects(image, objects);
         }
-        // locked memory holder should be alive all time while access to its buffer
-        // happens
-        auto moutputHolder = moutput->rmap();
-        const float* net_pred = moutputHolder.as<const PrecisionTrait<Precision::FP32>::value_type*>();
-        
-	    int img_w = image.cols;
-        int img_h = image.rows;
-	    float scale = std::min(INPUT_W / (image.cols*1.0), INPUT_H / (image.rows*1.0));
-        std::vector<Object> objects;
+        auto end1 = std::chrono::system_clock::now();
+        std::cout << "infer time: "
+                  << std::chrono::duration_cast<std::chrono::milliseconds>(end1 - start1).count() / test_num
+                  << std::endl;
 
-        decode_outputs(net_pred, objects, scale, img_w, img_h);
-        draw_objects(image, objects);
 
             // -----------------------------------------------------------------------------------------------------
         } catch (const std::exception& ex) {

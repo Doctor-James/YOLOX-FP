@@ -3,6 +3,8 @@ set(CMAKE_CXX_STANDARD 14)
 
 project(yolox_openvino_demo)
 
+set(InferenceEngine_DIR /opt/intel/openvino_2022/runtime/cmake)
+set(ngraph_DIR /opt/intel/openvino_2022/runtime/cmake)
 find_package(OpenCV REQUIRED)
 find_package(InferenceEngine REQUIRED)
 find_package(ngraph REQUIRED)
